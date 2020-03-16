@@ -1,0 +1,75 @@
+---
+title: "Experiment 2b"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+valid_trials <- read_csv('output/exp2b/valid_trials.csv')
+```
+
+# Outline
+
+In the following script we will analyze the data from [Luque et al. (2020)](https://psyarxiv.com/xnmfc/). The raw data are available [here](https://osf.io/9x3tm/) and described [here](https://osf.io/s8mey/).
+
+The analysis will consist in the fitting of the reaction times of the devalued trials of experiment 2b using the [Fast-DM](https://www.psychologie.uni-heidelberg.de/ae/meth/fast-dm/index-en.html) implementation of Ratcliff's Diffusion Model [(described here)](https://link.springer.com/article/10.3758/BF03192967).
+
+The general strategy was the the following:
+
+- First, data of the devalued phases of the design were extracted from the raw data files. As in Luque et al. (2020), the trials without a response or with a response were removed, as well as the consumption trials.
+
+- The remaining valid trials were dividided in three groups. The first contained the non-devalued trials, the second contained the devalued O^10^ trials and the third the devalued O^100^ trials.
+
+- The first group of trials (range of valid trials: `r valid_trials %>% filter(set == 'ND') %>% .$min` to `r valid_trials %>% filter(set == 'ND') %>% .$max`, mean `r valid_trials %>% filter(set == 'ND') %>% .$mean`) were fitted using Fast-DM (maximum likelihood method), with three free parameters, a, v and t0. The objective of this first adjustment was to extract the values of t0 to use them in further steps.
+
+- The second (range of valid trials: `r valid_trials %>% filter(set == 'D010') %>% .$min` to `r valid_trials %>% filter(set == 'D010') %>% .$max`, mean `r valid_trials %>% filter(set == 'D010') %>% .$mean`) and third (range of valid trials: `r valid_trials %>% filter(set == 'D100') %>% .$min` to `r valid_trials %>% filter(set == 'D100') %>% .$max`, mean `r valid_trials %>% filter(set == 'D100') %>% .$mean`) groups were then adjusted using the t0 parameter obtained in the previous step (free parameters a and v only, range of valid trials per group: 10 to 24).
+
+#### Extract the data from the files and fit the model
+```{r}
+#source('./scripts/generate_fast_dm.R')
+```
+
+#### Analysis
+Load auxiliary functions
+```{r, message=FALSE}
+source('./scripts/functions/fast_dm_functions.R')
+```
+
+Load the data obtained from fitting the models
+```{r}
+results <- map_df(list.files('output/exp2b/fast_dm/logs/', '(1|3)_[0-9]', full.names = TRUE),
+                  load_participant_D)
+```
+
+Generate summary plot of the parameters for each condition and group
+```{r}
+list_to_patch <- map(c("a", "v"), plot_list, results = results)
+list_to_patch[[1]] / list_to_patch[[2]] + theme(legend.position = "none") + xlab("Devalued outcome")
+```
+
+Omnibus mixed ANOVA (Group x Condition x Parameter)
+```{r}
+main_omnibus <- afex::aov_ez("id", "value",
+                             results %>%
+                               mutate(id = paste0(group,"_",id)),
+                             between = "group", within = c("condition","parameter"))
+papaja::apa_table(papaja::apa_print.afex_aov(main_omnibus)$table, caption = "Omnibus ANOVA")
+```
+
+T-tests for each group and parameter comparing the conditions
+```{r}
+to_print = ""
+for (cur_test in list(list(cur_group = "1", cur_parameter = "a", cur_name = "Short training"),
+                      list(cur_group = "1", cur_parameter = "v", cur_name = "Short training"),
+                      list(cur_group = "3", cur_parameter = "a", cur_name = "Long training"),
+                      list(cur_group = "3", cur_parameter = "v", cur_name = "Long training"))){
+
+  cur_result <- custom_paired_t.test(cur_test, results)
+  to_print <- paste0(to_print,
+                     paste("Group:", cur_test$cur_name,
+                           " - Parameter:", cur_test$cur_parameter, "\n\n"),
+                     papaja::apa_print(cur_result)["full_result"],"\n\n")
+}
+```
+`r to_print`
